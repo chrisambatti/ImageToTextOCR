@@ -24,3 +24,42 @@ ImageToTextOCR is a **Windows WPF application** built with **.NET 8.0** that ext
 1. Clone the repository:
    ```bash
    git clone https://github.com/chrisambatti/ImageToTextOCR.git
+Open the solution in Visual Studio 2022/2023.
+
+Restore NuGet packages:
+
+dotnet restore
+
+
+Build and run the application:
+
+dotnet build
+dotnet run
+
+Usage
+
+Click Upload Invoice.
+
+Select the invoice image file.
+
+The extracted text will appear in the UI fields.
+
+Fields with low confidence are highlighted (pink for review, green for high confidence).
+
+Notes
+
+The OCR works best on clearly printed invoices.
+
+Handwritten, blurry, or poorly scanned invoices may result in lower accuracy.
+
+Only fields that can be reliably extracted are included.
+
+License
+
+This project is open-source under the MIT License.
+
+Acknowledgments
+
+Special thanks to MauiOcrPluginSample
+
+and Gerald Versluis for the detailed video on OCR integration.
