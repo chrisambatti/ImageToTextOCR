@@ -24,6 +24,7 @@
 
   <!-- Packages -->
   <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Tesseract" Version="5.2.0" />
     <PackageReference Include="System.Drawing.Common" Version="10.0.2" />
   </ItemGroup>

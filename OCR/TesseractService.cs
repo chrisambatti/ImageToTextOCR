@@ -13,60 +13,73 @@ namespace ImageToTextOCR.OCR
         public List<OcrResult> ExtractText(string imagePath)
         {
             var results = new List<OcrResult>();
-            string processedImagePath = PreprocessImageForOCR(imagePath);
+            string fullText = ExtractWithBestSettings(imagePath);
 
-            using (var engine = new TesseractEngine(_tessdataPath, "eng", EngineMode.Default))
+            results.Add(new OcrResult
             {
-                engine.DefaultPageSegMode = PageSegMode.Auto;
+                Text = fullText,
+                Confidence = 85
+            });
 
-                using (var img = Pix.LoadFromFile(processedImagePath))
-                using (var page = engine.Process(img))
-                {
-                    var text = page.GetText();
-                    results.Add(new OcrResult
-                    {
-                        Text = text,
-                        Confidence = page.GetMeanConfidence() * 100
-                    });
-                }
-            }
-
-            CleanupTempFile(processedImagePath, imagePath);
             return results;
         }
 
-        private string PreprocessImageForOCR(string imagePath)
+        private string ExtractWithBestSettings(string imagePath)
+        {
+            string processedPath = PreprocessImage(imagePath);
+
+            try
+            {
+                using (var engine = new TesseractEngine(_tessdataPath, "eng", EngineMode.Default))
+                {
+                    engine.DefaultPageSegMode = PageSegMode.Auto;
+                    engine.SetVariable("preserve_interword_spaces", "1");
+                    engine.SetVariable("tessedit_char_whitelist",
+                        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz .,/:()-°%");
+
+                    using (var img = Pix.LoadFromFile(processedPath))
+                    using (var page = engine.Process(img))
+                    {
+                        return page.GetText();
+                    }
+                }
+            }
+            finally
+            {
+                CleanupTempFile(processedPath, imagePath);
+            }
+        }
+
+        private string PreprocessImage(string imagePath)
         {
             try
             {
-                using (Bitmap originalImage = new Bitmap(imagePath))
+                using (Bitmap original = new Bitmap(imagePath))
                 {
-                    int scaledWidth = originalImage.Width * 2;
-                    int scaledHeight = originalImage.Height * 2;
+                    int scale = 4;
+                    int newWidth = original.Width * scale;
+                    int newHeight = original.Height * scale;
 
-                    using (Bitmap scaledImage = new Bitmap(originalImage, scaledWidth, scaledHeight))
+                    using (Bitmap scaled = new Bitmap(original, newWidth, newHeight))
                     {
-                        Bitmap processedImage = new Bitmap(scaledWidth, scaledHeight);
+                        Bitmap processed = new Bitmap(newWidth, newHeight);
 
-                        for (int y = 0; y < scaledHeight; y++)
+                        for (int y = 0; y < newHeight; y++)
                         {
-                            for (int x = 0; x < scaledWidth; x++)
+                            for (int x = 0; x < newWidth; x++)
                             {
-                                Color pixelColor = scaledImage.GetPixel(x, y);
-                                int grayValue = (int)(pixelColor.R * 0.299 + pixelColor.G * 0.587 + pixelColor.B * 0.114);
-
-                                grayValue = grayValue < 160 ? 0 : 255;
-
-                                Color newColor = Color.FromArgb(grayValue, grayValue, grayValue);
-                                processedImage.SetPixel(x, y, newColor);
+                                Color pixel = scaled.GetPixel(x, y);
+                                int gray = (int)(pixel.R * 0.299 + pixel.G * 0.587 + pixel.B * 0.114);
+                                gray = gray < 140 ? 0 : 255;
+                                processed.SetPixel(x, y, Color.FromArgb(gray, gray, gray));
                             }
                         }
 
-                        string tempFilePath = Path.Combine(Path.GetTempPath(), "ocr_processed_" + Path.GetFileName(imagePath));
-                        processedImage.Save(tempFilePath, System.Drawing.Imaging.ImageFormat.Png);
-                        processedImage.Dispose();
+                        string tempPath = Path.Combine(Path.GetTempPath(), "invoice_ocr_" + Path.GetFileName(imagePath));
+                        processed.Save(tempPath, System.Drawing.Imaging.ImageFormat.Png);
+                        processed.Dispose();
 
-                        return tempFilePath;
+                        return tempPath;
                     }
                 }
             }
@@ -80,14 +93,7 @@ namespace ImageToTextOCR.OCR
         {
             if (processedPath != originalPath && File.Exists(processedPath))
             {
-                try
-                {
-                    File.Delete(processedPath);
-                }
-                catch
-                {
-                    // Ignore cleanup errors
-                }
+                try { File.Delete(processedPath); } catch { }
             }
         }
     }

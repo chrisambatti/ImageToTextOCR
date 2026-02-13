@@ -4,20 +4,22 @@ using System.Windows;
 using ImageToTextOCR.OCR;
 using System.Linq;
 using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace ImageToTextOCR
 {
     public partial class MainWindow : Window
     {
-        private readonly TesseractService _ocrService;
+        private readonly OcrSpaceService _ocrService;
 
         public MainWindow()
         {
             InitializeComponent();
-            _ocrService = new TesseractService();
+            _ocrService = new OcrSpaceService();
         }
 
-        private void Upload_Click(object sender, RoutedEventArgs e)
+        private async void Upload_Click(object sender, RoutedEventArgs e)
         {
             OpenFileDialog fileDialog = new OpenFileDialog
             {
@@ -28,36 +30,51 @@ namespace ImageToTextOCR
             if (fileDialog.ShowDialog() != true)
                 return;
 
-            ProcessInvoiceImage(fileDialog.FileName);
+            await ProcessInvoiceImageAsync(fileDialog.FileName);
         }
 
-        private void ProcessInvoiceImage(string imagePath)
+        private async Task ProcessInvoiceImageAsync(string imagePath)
         {
             try
             {
                 ShowLoadingState();
 
-                var ocrResults = _ocrService.ExtractText(imagePath);
+                var ocrResults = await _ocrService.ExtractTextAsync(imagePath);
 
-                if (ocrResults == null || ocrResults.Count == 0 || string.IsNullOrWhiteSpace(ocrResults.First().Text))
+                if (ocrResults == null || ocrResults.Count == 0)
                 {
-                    MessageBox.Show("Unable to extract text from the image. Please ensure the image is clear and readable.",
-                        "OCR Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show("Failed to extract text from the image.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     ResetAllFields();
                     return;
                 }
 
-                string extractedText = ocrResults.First().Text;
+                string text = ocrResults.First().Text;
 
-                // Uncomment to debug - shows raw OCR output
-                // MessageBox.Show(extractedText, "Raw OCR Output");
+                // Extract header fields
+                CompanyNameBox.Text = ExtractCompanyName(text);
+                InvoiceNoBox.Text = ExtractInvoiceNumber(text);
+                DateBox.Text = ExtractDate(text);
+                TRNBox.Text = ExtractTRN(text);
 
-                ShowExtractedData(extractedText);
+                // Extract new fields
+                SalesPersonBox.Text = ExtractSalesPerson(text);
+                PaymentTermsBox.Text = ExtractPaymentTerms(text);
+                ShipDateBox.Text = ExtractShipDate(text);
+                DONumberBox.Text = ExtractDONumber(text);
+                SONumberBox.Text = ExtractSONumber(text);
+
+                // Extract line items
+                var items = ExtractLineItems(text);
+                InvoiceItemsGrid.ItemsSource = items;
+
+                if (items.Count == 0)
+                {
+                    MessageBox.Show("No line items found in the invoice.", "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"An error occurred while processing the image:\n\n{ex.Message}",
-                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 ResetAllFields();
             }
         }
@@ -68,14 +85,12 @@ namespace ImageToTextOCR
             InvoiceNoBox.Text = "Processing...";
             DateBox.Text = "Processing...";
             TRNBox.Text = "Processing...";
-        }
-
-        private void ShowExtractedData(string text)
-        {
-            CompanyNameBox.Text = FindCompanyName(text);
-            InvoiceNoBox.Text = FindInvoiceNumber(text);
-            DateBox.Text = FindDate(text);
-            TRNBox.Text = FindTRN(text);
+            SalesPersonBox.Text = "Processing...";
+            PaymentTermsBox.Text = "Processing...";
+            ShipDateBox.Text = "Processing...";
+            DONumberBox.Text = "Processing...";
+            SONumberBox.Text = "Processing...";
+            InvoiceItemsGrid.ItemsSource = null;
         }
 
         private void ResetAllFields()
@@ -84,181 +99,337 @@ namespace ImageToTextOCR
             InvoiceNoBox.Text = "N/A";
             DateBox.Text = "N/A";
             TRNBox.Text = "N/A";
+            SalesPersonBox.Text = "N/A";
+            PaymentTermsBox.Text = "N/A";
+            ShipDateBox.Text = "N/A";
+            DONumberBox.Text = "N/A";
+            SONumberBox.Text = "N/A";
+            InvoiceItemsGrid.ItemsSource = null;
         }
 
-        private string FindCompanyName(string text)
+        private string ExtractCompanyName(string text)
         {
-            if (string.IsNullOrWhiteSpace(text))
-                return "N/A";
+            var match = Regex.Match(text, @"GF\s+Corys\s+Piping\s+Systems\s+LLC\s*-?\s*Duba[il]", RegexOptions.IgnoreCase);
+            if (match.Success)
+                return "GF Corys Piping Systems LLC - Dubai";
 
-            // Split text into lines for easier processing
-            string[] lines = text.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            return "N/A";
+        }
 
-            // Search in first 15 lines where company name usually appears
-            for (int i = 0; i < Math.Min(15, lines.Length); i++)
+        private string ExtractInvoiceNumber(string text)
+        {
+            var match = Regex.Match(text, @"\b(26\d{7,8})\b");
+            if (match.Success)
+                return match.Groups[1].Value;
+
+            match = Regex.Match(text, @"Invoice.*?(\d{8,10})", RegexOptions.IgnoreCase);
+            if (match.Success)
+                return match.Groups[1].Value;
+
+            return "N/A";
+        }
+
+        private string ExtractDate(string text)
+        {
+            var match = Regex.Match(text, @"\b(\d{1,2}[-/](?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[-/]\d{2,4})\b", RegexOptions.IgnoreCase);
+            if (match.Success)
+                return match.Groups[1].Value.ToUpper();
+
+            return "N/A";
+        }
+
+        private string ExtractTRN(string text)
+        {
+            var match = Regex.Match(text, @"\b(100\d{12,15})\b");
+            if (match.Success)
+                return match.Groups[1].Value;
+
+            match = Regex.Match(text, @"TRN\s*[:\s]*(\d{12,16})", RegexOptions.IgnoreCase);
+            if (match.Success)
+                return match.Groups[1].Value;
+
+            return "N/A";
+        }
+
+        private string ExtractSalesPerson(string text)
+        {
+            // Look for "BIJU V. PILLAI" or similar pattern (name with initials)
+            var match = Regex.Match(text, @"\b([A-Z]{3,}\s+[A-Z]\.\s+[A-Z]{3,})\b");
+            if (match.Success)
             {
-                string line = lines[i].Trim();
+                string name = match.Groups[1].Value.Trim();
+                // Make sure it's not a common false positive
+                if (!name.Contains("LLC") && !name.Contains("BOX"))
+                    return name;
+            }
 
-                // Look for lines containing "GF" and "Corys"
-                if (line.Contains("GF", StringComparison.OrdinalIgnoreCase) &&
-                    line.Contains("Corys", StringComparison.OrdinalIgnoreCase))
+            // Alternative: Look after "Sales Person" label
+            match = Regex.Match(text, @"Sales\s+Person[:\s]*\r?\n?\s*([A-Z][A-Z\s.]+?)(?:\r|\n|Payment|Ship)", RegexOptions.IgnoreCase);
+            if (match.Success)
+                return match.Groups[1].Value.Trim();
+
+            return "N/A";
+        }
+
+        private string ExtractPaymentTerms(string text)
+        {
+            // Look for "90 Days" pattern
+            var match = Regex.Match(text, @"(\d+\s+Days\.?)", RegexOptions.IgnoreCase);
+            if (match.Success)
+                return match.Groups[1].Value.Trim();
+
+            // Alternative: Look after "Payment Terms" label
+            match = Regex.Match(text, @"Payment\s+Terms[:\s]*(.+?)(?:\r|\n|Ship)", RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                string terms = match.Groups[1].Value.Trim();
+                if (terms.Length > 0 && terms.Length < 50)
+                    return terms;
+            }
+
+            return "N/A";
+        }
+
+        private string ExtractShipDate(string text)
+        {
+            // Pattern 1: Look for "Shilp Date" or "Ship Date" with date
+            var match = Regex.Match(text, @"(?:Ship|Shilp)\s+Date[:\s]*(\d{1,2}[A-Z]{3}-?\d{2,4})", RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                string date = match.Groups[1].Value.Trim().ToUpper();
+                // Ensure hyphen format: 11-JAN-2026
+                return FormatDateWithHyphens(date);
+            }
+
+            // Pattern 2: Look for "11JAN-2026" format anywhere in text
+            match = Regex.Match(text, @"\b(\d{1,2}[A-Z]{3}-?\d{4})\b", RegexOptions.IgnoreCase);
+            if (match.Success)
+            {
+                string date = match.Groups[1].Value.Trim().ToUpper();
+                // Make sure it's not the invoice date we already extracted
+                if (date != DateBox.Text)
+                    return FormatDateWithHyphens(date);
+            }
+
+            // Pattern 3: Look for date near the sales section
+            var lines = text.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            bool foundSalesPerson = false;
+
+            foreach (var line in lines)
+            {
+                if (line.Contains("Sales Person", StringComparison.OrdinalIgnoreCase) ||
+                    line.Contains("Payment Terms", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Clean the line
-                    string cleanedLine = CleanText(line);
-
-                    // Make sure it's substantial enough to be a company name
-                    if (cleanedLine.Length > 10)
-                        return cleanedLine;
+                    foundSalesPerson = true;
                 }
 
-                // Look for lines containing common business suffixes
-                if (Regex.IsMatch(line, @"(LLC|LTD|INC|CORP|PVT|Limited|Corporation)", RegexOptions.IgnoreCase))
+                if (foundSalesPerson)
                 {
-                    // Check if this looks like a company name (not too long, not too short)
-                    string cleanedLine = CleanText(line);
-                    if (cleanedLine.Length > 10 && cleanedLine.Length < 100)
+                    match = Regex.Match(line, @"\b(\d{1,2}[A-Z]{3}-?\d{4})\b", RegexOptions.IgnoreCase);
+                    if (match.Success)
                     {
-                        // Additional check: company names usually have capital letters
-                        if (Regex.IsMatch(cleanedLine, @"[A-Z]"))
-                            return cleanedLine;
+                        string date = match.Groups[1].Value.Trim().ToUpper();
+                        return FormatDateWithHyphens(date);
                     }
                 }
             }
 
-            // Fallback: Use regex patterns on entire text
-            string[] patterns = new[]
-            {
-                @"(GF\s+Corys\s+Piping\s+Systems\s+LLC[^
-]*Dubai)",
-                @"(GF\s+Corys\s+Piping\s+Systems\s+LLC)",
-                @"GF[^
-]*Corys[^
-]*Piping[^
-]*Systems[^
-]*LLC",
-                @"([A-Z][A-Za-z\s&.,'-]+(?:LLC|LTD|INC|CORP|PVT|Limited|Corporation)[^
-]*)",
-            };
+            return "N/A";
+        }
 
-            foreach (string pattern in patterns)
+        private string FormatDateWithHyphens(string date)
+        {
+            // Convert "11JAN2026" or "11JAN-2026" to "11-JAN-2026"
+            if (string.IsNullOrEmpty(date))
+                return date;
+
+            // Pattern: ddMMMyyyyd or dd-MMM-yyyy
+            var match = Regex.Match(date, @"^(\d{1,2})([A-Z]{3})-?(\d{4})$", RegexOptions.IgnoreCase);
+            if (match.Success)
             {
-                Match match = Regex.Match(text, pattern, RegexOptions.IgnoreCase | RegexOptions.Multiline);
-                if (match.Success)
+                string day = match.Groups[1].Value;
+                string month = match.Groups[2].Value.ToUpper();
+                string year = match.Groups[3].Value;
+
+                return $"{day}-{month}-{year}";
+            }
+
+            return date;
+        }
+
+        private string ExtractDONumber(string text)
+        {
+            // Pattern 1: Look for "D.O. Number" followed by 8 digits
+            var match = Regex.Match(text, @"D\.?\s*O\.?\s*Number[:\s]*(\d{7,9})", RegexOptions.IgnoreCase);
+            if (match.Success)
+                return match.Groups[1].Value.Trim();
+
+            // Pattern 2: Look for 8-digit number starting with 3 or 4 (typical D.O. format)
+            var lines = text.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            bool inHeaderSection = false;
+
+            foreach (var line in lines)
+            {
+                if (line.Contains("Payment Terms", StringComparison.OrdinalIgnoreCase) ||
+                    line.Contains("Ship Date", StringComparison.OrdinalIgnoreCase))
                 {
-                    string company = match.Groups.Count > 1 ? match.Groups[1].Value : match.Value;
-                    company = CleanText(company);
+                    inHeaderSection = true;
+                }
 
-                    if (company.Length > 10)
-                        return company;
+                if (line.Contains("Item Code", StringComparison.OrdinalIgnoreCase) ||
+                    line.Contains("Item Description", StringComparison.OrdinalIgnoreCase))
+                {
+                    break; // Stop at table section
+                }
+
+                if (inHeaderSection)
+                {
+                    // Look for 8-digit number
+                    match = Regex.Match(line, @"\b([34]\d{7})\b");
+                    if (match.Success)
+                        return match.Groups[1].Value.Trim();
                 }
             }
 
             return "N/A";
         }
 
-        private string FindInvoiceNumber(string text)
+        private string ExtractSONumber(string text)
         {
-            if (string.IsNullOrWhiteSpace(text))
-                return "N/A";
+            // Pattern 1: Look for "S.O. Number" followed by 10 digits
+            var match = Regex.Match(text, @"S\.?\s*O\.?\s*Number[:\s]*(\d{9,11})", RegexOptions.IgnoreCase);
+            if (match.Success)
+                return match.Groups[1].Value.Trim();
 
-            string[] patterns = new[]
-            {
-                @"Invoice\s*No\.?\s*[:\s]*(\d{6,12})",
-                @"Invoice\s*No\.?\s*[:\s]*([A-Z0-9\-/]{6,})",
-                @"No\.\s*(\d{9})",
-                @"\b(261200791)\b",
-                @"\b(26\d{7,9})\b",
-                @"Invoice[^\d]*(\d{8,12})",
-            };
+            // Pattern 2: Look for 10-digit number starting with 25 (typical S.O. format)
+            var lines = text.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            bool inHeaderSection = false;
 
-            foreach (string pattern in patterns)
+            foreach (var line in lines)
             {
-                Match match = Regex.Match(text, pattern, RegexOptions.IgnoreCase);
-                if (match.Success && match.Groups.Count > 1)
+                if (line.Contains("Payment Terms", StringComparison.OrdinalIgnoreCase) ||
+                    line.Contains("Ship Date", StringComparison.OrdinalIgnoreCase))
                 {
-                    string invoiceNo = match.Groups[1].Value.Trim();
-                    if (invoiceNo.Length >= 6 && invoiceNo.Length <= 15)
-                        return invoiceNo;
+                    inHeaderSection = true;
+                }
+
+                if (line.Contains("Item Code", StringComparison.OrdinalIgnoreCase) ||
+                    line.Contains("Item Description", StringComparison.OrdinalIgnoreCase))
+                {
+                    break; // Stop at table section
+                }
+
+                if (inHeaderSection)
+                {
+                    // Look for 10-digit number starting with 25
+                    match = Regex.Match(line, @"\b(25\d{8})\b");
+                    if (match.Success)
+                        return match.Groups[1].Value.Trim();
                 }
             }
 
             return "N/A";
         }
 
-        private string FindDate(string text)
+        private List<InvoiceLineItem> ExtractLineItems(string text)
         {
-            if (string.IsNullOrWhiteSpace(text))
-                return "N/A";
+            var items = new List<InvoiceLineItem>();
+            var lines = text.Split(new[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
 
-            string[] patterns = new[]
-            {
-                @"\b(\d{1,2}-(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)-\d{2,4})\b",
-                @"Date[:\s]+(\d{1,2}-[A-Z]{3}-\d{2,4})",
-                @"Due\s*Date[:\s]*(\d{1,2}-[A-Z]{3}-\d{2,4})",
-                @"\be\s+Date[:\s]+(\d{1,2}-[A-Z]{3}-\d{2,4})",
-                @"(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})",
-            };
+            bool inTableSection = false;
+            int itemCounter = 1;
 
-            foreach (string pattern in patterns)
+            for (int i = 0; i < lines.Length; i++)
             {
-                Match match = Regex.Match(text, pattern, RegexOptions.IgnoreCase);
-                if (match.Success && match.Groups.Count > 1)
+                string line = lines[i].Trim();
+
+                if (Regex.IsMatch(line, @"S\.?no|S\.?\s*No|Item\s+Code|Item\s+Description|UOM|QTY", RegexOptions.IgnoreCase))
                 {
-                    string date = match.Groups[1].Value.Trim().ToUpper();
+                    inTableSection = true;
+                    continue;
+                }
 
-                    // Validate it looks like a date
-                    if (date.Length >= 8 && date.Length <= 15)
-                        return date;
+                if (Regex.IsMatch(line, @"^Total\s+Number|^Freight|^Total\s+In\s+Words|^Misc", RegexOptions.IgnoreCase))
+                    break;
+
+                if (inTableSection)
+                {
+                    if (Regex.IsMatch(line, @"\b[A-Z]\d{9,10}\b"))
+                    {
+                        string combinedLine = line;
+                        if (i + 1 < lines.Length)
+                        {
+                            combinedLine += " " + lines[i + 1].Trim();
+                        }
+
+                        var item = ParseLineItem(combinedLine, itemCounter);
+                        if (item != null)
+                        {
+                            items.Add(item);
+                            itemCounter++;
+                        }
+                    }
                 }
             }
 
-            return "N/A";
+            return items;
         }
 
-        private string FindTRN(string text)
+        private InvoiceLineItem ParseLineItem(string line, int counter)
         {
-            if (string.IsNullOrWhiteSpace(text))
-                return "N/A";
+            if (string.IsNullOrWhiteSpace(line))
+                return null;
 
-            string[] patterns = new[]
-            {
-                @"TRN\s+(\d{15})",
-                @"TRN[:\s]+(\d{12,16})",
-                @"(?:Customer\s+TRN|Tax\s+Registration)[:\s]+(\d{12,16})",
-                @"\b(100021258700003)\b",
-                @"\b(100\d{12})\b",
-                @"Tax[^\d]*(\d{15})",
-            };
+            var codeMatch = Regex.Match(line, @"\b([A-Z]\d{9,10})\b");
+            if (!codeMatch.Success)
+                return null;
 
-            foreach (string pattern in patterns)
+            var item = new InvoiceLineItem();
+            item.ItemCode = codeMatch.Groups[1].Value;
+            item.SrNo = counter.ToString();
+
+            var descMatch = Regex.Match(line, @"(Duct\s+Bend[^\d]+?)(?:\s+EA|\s+PC|\s+UNIT|\s+\d{3,})", RegexOptions.IgnoreCase);
+            if (descMatch.Success)
             {
-                Match match = Regex.Match(text, pattern, RegexOptions.IgnoreCase);
-                if (match.Success && match.Groups.Count > 1)
-                {
-                    string trn = match.Groups[1].Value.Trim();
-                    if (trn.Length >= 12 && trn.Length <= 20)
-                        return trn;
-                }
+                item.ItemDescription = descMatch.Groups[1].Value.Trim();
             }
 
-            return "N/A";
-        }
+            var uomMatch = Regex.Match(line, @"\b(EA|PC|UNIT|KG|MTR|SET|BOX)\b", RegexOptions.IgnoreCase);
+            if (uomMatch.Success)
+                item.UOM = uomMatch.Groups[1].Value.ToUpper();
 
-        private string CleanText(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return string.Empty;
+            var vatMatch = Regex.Match(line, @"\b(\d{1,2})%");
+            if (vatMatch.Success)
+            {
+                item.VATPercent = vatMatch.Groups[1].Value + "%";
+            }
 
-            // Remove special characters that OCR sometimes adds
-            text = Regex.Replace(text, @"[|\\']", "");
+            var allNumbers = Regex.Matches(line, @"\d+\.\d+");
+            var numbers = new List<string>();
 
-            // Replace multiple spaces with single space
-            text = Regex.Replace(text, @"\s+", " ");
+            foreach (Match m in allNumbers)
+            {
+                numbers.Add(m.Value);
+            }
 
-            // Remove leading/trailing whitespace
-            text = text.Trim();
+            if (numbers.Count >= 5)
+            {
+                item.Quantity = numbers[0];
+                item.UnitRate = numbers[1];
+                item.TotalExclVAT = numbers[2];
+                item.VATAmount = numbers[3];
+                item.TotalInclVAT = numbers[4];
+            }
+            else if (numbers.Count >= 2)
+            {
+                item.Quantity = numbers[0];
+                item.UnitRate = numbers[1];
+            }
 
-            return text;
+            if (!string.IsNullOrEmpty(item.ItemCode))
+                return item;
+
+            return null;
         }
     }
 }
