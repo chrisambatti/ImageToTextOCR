@@ -23,27 +23,27 @@ namespace ImageToTextOCR
         {
             OpenFileDialog fileDialog = new OpenFileDialog
             {
-                Filter = "Image Files|*.png;*.jpg;*.jpeg;*.bmp;*.tiff",
-                Title = "Select Invoice Image"
+                Filter = "Invoice Files|*.pdf;*.png;*.jpg;*.jpeg;*.bmp;*.tiff|PDF Files|*.pdf|Image Files|*.png;*.jpg;*.jpeg;*.bmp;*.tiff",
+                Title = "Select Invoice (PDF or Image)"
             };
 
             if (fileDialog.ShowDialog() != true)
                 return;
 
-            await ProcessInvoiceImageAsync(fileDialog.FileName);
+            await ProcessInvoiceAsync(fileDialog.FileName);
         }
 
-        private async Task ProcessInvoiceImageAsync(string imagePath)
+        private async Task ProcessInvoiceAsync(string filePath)
         {
             try
             {
                 ShowLoadingState();
 
-                var ocrResults = await _ocrService.ExtractTextAsync(imagePath);
+                var ocrResults = await _ocrService.ExtractTextAsync(filePath);
 
                 if (ocrResults == null || ocrResults.Count == 0)
                 {
-                    MessageBox.Show("Failed to extract text from the image.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show("Failed to extract text from the file.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     ResetAllFields();
                     return;
                 }
